@@ -8,8 +8,8 @@ node_modules/
 .deno/
 .cache/
 
-# Build output generated locally and in release CI
-dist/main.js.map
+# Release outputs
+release/
 
 # Test and coverage output
 coverage/
