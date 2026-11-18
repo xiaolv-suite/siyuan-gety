@@ -1,7 +1,7 @@
 {
 	"id": "siyuan-gety",
 	"name": "SiYuan Note",
-	"version": "0.5.2",
+	"version": "0.5.3",
 	"min_gety_app_version": "0.7.0",
 	"sync_version": 2,
 	"permissions": {

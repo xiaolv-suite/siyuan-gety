@@ -1,5 +1,7 @@
 {
 	"package": "siyuan-gety",
-	"version": "0.5.2",
-	"author": { "github": "xiaolv-suite" }
+	"version": "0.5.3",
+	"author": {
+		"github": "xiaolv-suite"
+	}
 }

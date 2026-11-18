@@ -489,7 +489,7 @@ var PROGRESS_EVERY_BATCHES = 20;
 var EMPTY_DOC_PLACEHOLDER = "*\uFF08\u6682\u65E0\u5185\u5BB9\uFF09*";
 function describeKernelError(apiUrl, token, err) {
   const message = err.message ?? String(err);
-  if (/permission denied|not granted|EPERM|getaddrinfo/i.test(message)) {
+  if (/permission denied|not granted|is not granted|EPERM|getaddrinfo|requires net access|allow-net/i.test(message)) {
     return `Gety \u672A\u6388\u6743\u8BBF\u95EE\u601D\u6E90\u5730\u5740 ${apiUrl}\u3002\u8BF7\u5728\u8FDE\u63A5\u5668\u8BBE\u7F6E\u4E2D\u786E\u8BA4\u300C\u601D\u6E90 API \u5730\u5740\u300D\u586B\u5199\u6B63\u786E\uFF0CGety \u4F1A\u6309\u8BE5\u5B57\u6BB5\u81EA\u52A8\u6388\u4E88\u7F51\u7EDC\u8BBF\u95EE\u6743\u9650\uFF1B\u82E5\u601D\u6E90\u4E0D\u5728\u8BE5\u5730\u5740\uFF0C\u8BF7\u4FEE\u6539\u540E\u91CD\u8BD5\u3002Cause: ${message}`;
   }
   if (/HTTP 40[13]|Auth failed|token/i.test(message) && token.length > 0) {

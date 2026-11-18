@@ -2,6 +2,17 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.5.3] - 2026-11-18
+
+### Fixed
+
+- **沙箱拒网提示从未生效** — `describeKernelError()` 原只匹配
+  `permission denied` / `EPERM` / `getaddrinfo`，但 Deno 沙箱实际抛出的是
+  `Requires net access to "localhost:6806", run again with the --allow-net flag`，
+  上述关键词一个都不含。用户在 `permissions.net` 未覆盖其思源地址时，只会看到
+  笼统的「无法连接思源内核」，无法定位到「授权」这一真正原因。现已补齐真实文案
+  的匹配，并新增针对该原文的回归测试锁定行为。
+
 ## [0.5.2] - 2026-11-18
 
 对齐 Gety 官方连接器规范

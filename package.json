@@ -1,6 +1,6 @@
 {
 	"name": "siyuan-gety",
-	"version": "0.5.2",
+	"version": "0.5.3",
 	"description": "小驴思源生态配套 · 索引思源笔记文档并通过本地 HTTP API 全文检索与跳转编辑。XiaoLv Suite companion that indexes SiYuan Note documents via the local kernel HTTP API.",
 	"license": "MIT",
 	"keywords": [
@@ -32,7 +32,7 @@
 	"gety": {
 		"id": "siyuan-gety",
 		"name": "SiYuan Note",
-		"version": "0.5.2",
+		"version": "0.5.3",
 		"min_gety_app_version": "0.7.0",
 		"sync_version": 2,
 		"permissions": {

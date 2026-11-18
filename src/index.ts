@@ -63,7 +63,14 @@ export function describeKernelError(
 	err: unknown,
 ): string {
 	const message = (err as Error).message ?? String(err);
-	if (/permission denied|not granted|EPERM|getaddrinfo/i.test(message)) {
+	// Deno's real sandbox wording is
+	//   Requires net access to "localhost:6806", run again with the --allow-net flag
+	// which contains neither "permission denied" nor EPERM, so match every
+	// spelling we have observed across Deno versions and Gety's own wrapper.
+	if (
+		/permission denied|not granted|is not granted|EPERM|getaddrinfo|requires net access|allow-net/i
+			.test(message)
+	) {
 		return (
 			`Gety 未授权访问思源地址 ${apiUrl}。` +
 			`请在连接器设置中确认「思源 API 地址」填写正确，` +

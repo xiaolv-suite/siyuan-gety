@@ -22,6 +22,20 @@ Deno.test('describeKernelError explains getaddrinfo EPERM as a grant problem', (
 	assert.match(message, /未授权访问思源地址/);
 });
 
+Deno.test("describeKernelError explains Deno's own sandbox wording", () => {
+	// Exact text observed from a Deno run without the granted host, and the
+	// wording Gety's host runner surfaces. It contains no "permission denied"
+	// and no EPERM, which is why the matcher must cover it explicitly.
+	const message = describeKernelError(
+		'http://localhost:6806',
+		'tok',
+		new Error(
+			'Network error calling /api/system/version: Requires net access to "localhost:6806", run again with the --allow-net flag',
+		),
+	);
+	assert.match(message, /未授权访问思源地址/);
+});
+
 Deno.test('describeKernelError explains a rejected token', () => {
 	const message = describeKernelError(
 		'http://localhost:6806',
