@@ -7,10 +7,16 @@ on:
 
 permissions:
   contents: write
+  # Required by `npm publish --provenance` to mint the Sigstore OIDC token.
+  id-token: write
 
 jobs:
   release:
     runs-on: ubuntu-latest
+    env:
+      # Read pass-through so the npm step's `if:` can gate on it. Empty when
+      # the repository secret is not configured, which keeps the step skipped.
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
 
     steps:
       - name: Checkout
@@ -60,9 +66,17 @@ jobs:
           node-version: '22.x'
           registry-url: 'https://registry.npmjs.org'
 
-      - name: Publish to npm (if NPM_TOKEN is configured)
-        if: env.NPM_AUTH_TOKEN != ''
-        run: npm publish --access public
+      # Job-level `env` is readable from a step's `if`; a step's own `env` is
+      # not, which silently skipped publishing before. The gate also skips a
+      # version that is already on npm, since npm never allows republishing.
+      - name: Publish to npm (skipped when NPM_TOKEN is unset)
+        if: env.NPM_TOKEN != ''
+        run: |
+          PKG_VERSION="$(node -p "require('./package.json').version")"
+          if npm view "siyuan-gety@${PKG_VERSION}" version >/dev/null 2>&1; then
+            echo "siyuan-gety@${PKG_VERSION} is already on npm; skipping."
+          else
+            npm publish --access public --provenance
+          fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-          NPM_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
