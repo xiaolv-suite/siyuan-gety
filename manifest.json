@@ -2,7 +2,14 @@
 	"id": "siyuan-gety",
 	"name": "SiYuan Note",
 	"version": "0.5.1",
-	"min_gety_app_version": "0.5.1",
+	"min_gety_app_version": "0.7.0",
+	"permissions": {
+		"net": [
+			{
+				"config_field": "api_url"
+			}
+		]
+	},
 	"capabilities": ["data-source"],
 	"entry": "dist/main.js",
 	"icon": "icon.svg",

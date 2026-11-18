@@ -4,10 +4,13 @@
 		"esbuild": "npm:esbuild@^0.24.2",
 		"@luca/esbuild-deno-loader": "jsr:@luca/esbuild-deno-loader@^0.11.1"
 	},
+	"nodeModulesDir": "none",
 	"tasks": {
 		"build": "deno run -A scripts/build.ts",
 		"dev": "deno run -A scripts/build.ts --watch",
-		"check": "deno task generate && deno check src/index.ts scripts/build.ts scripts/setup.ts scripts/generate-manifest-config.ts dev/gety-connector-sdk/mod.ts dev/runner.ts src/gen/manifest.d.ts",
+		"sync": "deno run -A scripts/sync-package.ts",
+		"sync:check": "deno run -A scripts/sync-package.ts --check",
+		"check": "deno task generate && deno check src/index.ts scripts/build.ts scripts/setup.ts scripts/generate-manifest-config.ts scripts/sync-package.ts dev/gety-connector-sdk/mod.ts dev/runner.ts src/gen/manifest.d.ts",
 		"generate": "deno run -A scripts/generate-manifest-config.ts",
 		"setup": "deno run -A scripts/setup.ts",
 		"test": "deno test src",
@@ -17,7 +20,7 @@
 		"fmt:check": "deno fmt --check",
 		"lint": "deno lint",
 		"lint:fix": "deno lint --fix",
-		"verify": "deno task fmt:check && deno task lint && deno task check && deno task test && deno task build"
+		"verify": "deno task sync:check && deno task fmt:check && deno task lint && deno task check && deno task test && deno task build"
 	},
 	"fmt": {
 		"useTabs": true,

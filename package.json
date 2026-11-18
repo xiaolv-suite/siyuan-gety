@@ -1,0 +1,116 @@
+{
+	"name": "siyuan-gety",
+	"version": "0.5.1",
+	"description": "小驴思源生态配套 · 索引思源笔记文档并通过本地 HTTP API 全文检索与跳转编辑。XiaoLv Suite Companion - Indexes SiYuan Note documents via local HTTP API.",
+	"license": "MIT",
+	"keywords": [
+		"gety",
+		"gety-connector",
+		"siyuan",
+		"siyuan-note",
+		"xiaolv"
+	],
+	"homepage": "https://github.com/xiaolv-suite/siyuan-gety#readme",
+	"bugs": "https://github.com/xiaolv-suite/siyuan-gety/issues",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/xiaolv-suite/siyuan-gety.git"
+	},
+	"files": [
+		"dist/main.js",
+		"dist/main.js.map",
+		"icon.svg",
+		"icon.png",
+		"CHANGELOG.md"
+	],
+	"scripts": {
+		"prepublishOnly": "deno task sync:check"
+	},
+	"publishConfig": {
+		"access": "public"
+	},
+	"gety": {
+		"id": "siyuan-gety",
+		"name": "SiYuan Note",
+		"version": "0.5.1",
+		"min_gety_app_version": "0.7.0",
+		"permissions": {
+			"net": [
+				{
+					"config_field": "api_url"
+				}
+			]
+		},
+		"capabilities": [
+			"data-source"
+		],
+		"entry": "dist/main.js",
+		"icon": "icon.svg",
+		"description": "小驴思源生态配套 · 索引思源笔记文档并通过本地 HTTP API 全文检索与跳转编辑。XiaoLv Suite Companion - Indexes SiYuan Note documents via local HTTP API.",
+		"author": {
+			"name": "xiaolv-suite",
+			"url": "https://github.com/xiaolv-suite"
+		},
+		"schedule": {
+			"strategy": "interval",
+			"interval_seconds": 1800
+		},
+		"doc_link": {
+			"kind": "url",
+			"field": "url"
+		},
+		"config": {
+			"fields": [
+				{
+					"id": "api_url",
+					"title": "API 地址",
+					"type": "text",
+					"required": true,
+					"default_value": "http://localhost:6806"
+				},
+				{
+					"id": "api_token",
+					"title": "API 令牌",
+					"type": "password",
+					"required": true
+				}
+			]
+		},
+		"schema": {
+			"extra_gety_indexed_fields": [
+				{
+					"field": "notebook_name",
+					"strategy": "fast_text"
+				},
+				{
+					"field": "doc_path",
+					"strategy": "fast_text"
+				},
+				{
+					"field": "source_path",
+					"strategy": "fast_text"
+				},
+				{
+					"field": "name",
+					"strategy": "fast_text"
+				},
+				{
+					"field": "alias",
+					"strategy": "fast_text"
+				},
+				{
+					"field": "memo",
+					"strategy": "full_text"
+				},
+				{
+					"field": "tags",
+					"strategy": "fast_text"
+				},
+				{
+					"field": "links",
+					"strategy": "fast_text"
+				}
+			]
+		}
+	}
+}
