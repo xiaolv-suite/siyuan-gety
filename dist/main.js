@@ -485,7 +485,18 @@ function buildContentHeader(pathBreadcrumb, updatedAt, content, tags, compact = 
 // src/index.ts
 var DOC_TYPE = "siyuan:doc";
 var EXPORT_CONCURRENCY = 6;
+var PROGRESS_EVERY_BATCHES = 20;
 var EMPTY_DOC_PLACEHOLDER = "*\uFF08\u6682\u65E0\u5185\u5BB9\uFF09*";
+function describeKernelError(apiUrl, token, err) {
+  const message = err.message ?? String(err);
+  if (/permission denied|not granted|EPERM|getaddrinfo/i.test(message)) {
+    return `Gety \u672A\u6388\u6743\u8BBF\u95EE\u601D\u6E90\u5730\u5740 ${apiUrl}\u3002\u8BF7\u5728\u8FDE\u63A5\u5668\u8BBE\u7F6E\u4E2D\u786E\u8BA4\u300C\u601D\u6E90 API \u5730\u5740\u300D\u586B\u5199\u6B63\u786E\uFF0CGety \u4F1A\u6309\u8BE5\u5B57\u6BB5\u81EA\u52A8\u6388\u4E88\u7F51\u7EDC\u8BBF\u95EE\u6743\u9650\uFF1B\u82E5\u601D\u6E90\u4E0D\u5728\u8BE5\u5730\u5740\uFF0C\u8BF7\u4FEE\u6539\u540E\u91CD\u8BD5\u3002Cause: ${message}`;
+  }
+  if (/HTTP 40[13]|Auth failed|token/i.test(message) && token.length > 0) {
+    return `\u601D\u6E90 API \u4EE4\u724C\u88AB\u62D2\u7EDD\u3002\u8BF7\u5728\u601D\u6E90\u300C\u8BBE\u7F6E \u2192 \u5173\u4E8E \u2192 API token\u300D\u91CD\u65B0\u590D\u5236\u4EE4\u724C\u5E76\u586B\u5165\u3002Cause: ${message}`;
+  }
+  return `\u65E0\u6CD5\u8FDE\u63A5\u601D\u6E90\u5185\u6838 ${apiUrl}\u3002\u8BF7\u786E\u8BA4\u601D\u6E90\u6B63\u5728\u8FD0\u884C\uFF0C\u4E14 API \u5730\u5740\u4E0E\u7AEF\u53E3\u6B63\u786E\u3002Cause: ${message}`;
+}
 function readDebugLogPath() {
   try {
     const value = Deno.env.get("SIYUAN_CONNECTOR_DEBUG_LOG");
@@ -517,6 +528,16 @@ var SiYuanConnector = class extends Connector {
     } catch {
     }
   }
+  /**
+   * Progress line for Gety's activity window. A poll that sends nothing to
+   * Gety for 10 minutes is treated as hung and cancelled; console output
+   * counts as activity. Kept low-frequency to avoid log spam: phase
+   * boundaries plus every `PROGRESS_EVERY_BATCHES` batches.
+   */
+  progress(msg) {
+    console.info(`[siyuan-gety] ${msg}`);
+    this.debug(msg);
+  }
   async onLoad() {
     const apiUrl = (this.config.api_url ?? "http://localhost:6806").trim();
     const apiToken = (this.config.api_token ?? "").trim();
@@ -530,9 +551,7 @@ var SiYuanConnector = class extends Connector {
     } catch (err) {
       this.debug(`version() FAILED: ${err.message}`);
       this.flushDebug();
-      throw new Error(
-        `Could not reach SiYuan kernel at ${apiUrl}. Ensure SiYuan is running and the API URL is correct. Cause: ${err.message}`
-      );
+      throw new Error(describeKernelError(apiUrl, apiToken, err));
     }
     try {
       const nbs = await this.client.lsNotebooks();
@@ -544,12 +563,13 @@ var SiYuanConnector = class extends Connector {
       this.debug(`lsNotebooks() FAILED: ${err.message}`);
       this.flushDebug();
       throw new Error(
-        apiToken === "" ? `SiYuan API token is required but not provided. Get it from SiYuan: Settings > About > API token. Cause: ${err.message}` : `SiYuan API token is invalid or rejected. Regenerate it in SiYuan: Settings > About > API token. Cause: ${err.message}`
+        apiToken === "" ? `\u9700\u8981\u586B\u5199\u601D\u6E90 API \u4EE4\u724C\uFF1A\u601D\u6E90\u300C\u8BBE\u7F6E \u2192 \u5173\u4E8E \u2192 API token\u300D\u3002Cause: ${err.message}` : describeKernelError(apiUrl, apiToken, err)
       );
     }
   }
   async *poll() {
     this.debug(`poll start. concurrency=${EXPORT_CONCURRENCY}`);
+    this.progress("sync started");
     const allNotebooks = await this.client.lsNotebooks();
     const notebooks = allNotebooks.filter((nb) => !nb.closed);
     this.debug(
@@ -624,6 +644,9 @@ var SiYuanConnector = class extends Connector {
     this.debug(
       `poll: ${docsToFetch.length} docs to fetch (new/updated/retry), ${deletedDocIds.length} to delete`
     );
+    this.progress(
+      `${notebooks.length} notebooks, ${docsToFetch.length} docs to index, ${deletedDocIds.length} to delete`
+    );
     const nextDocs = { ...previousDocs };
     for (const id of deletedDocIds) delete nextDocs[id];
     const nextRetry = new Set(previousRetryIds);
@@ -651,6 +674,7 @@ var SiYuanConnector = class extends Connector {
       };
     }
     let yielded = 0;
+    let batchIndex = 0;
     for (let i = 0; i < docsToFetch.length; i += EXPORT_CONCURRENCY) {
       if (this.signal.aborted) return;
       const chunk = docsToFetch.slice(i, i + EXPORT_CONCURRENCY);
@@ -694,9 +718,15 @@ var SiYuanConnector = class extends Connector {
         }
       }
       yielded += batch.length;
+      batchIndex += 1;
       this.debug(
         `poll: yielding batch of ${batch.length} docs (total=${yielded})`
       );
+      if (batchIndex % PROGRESS_EVERY_BATCHES === 0) {
+        this.progress(
+          `indexed ${yielded}/${docsToFetch.length} docs`
+        );
+      }
       yield {
         updates: batch,
         state: checkpoint()
@@ -798,6 +828,7 @@ var SiYuanConnector = class extends Connector {
   }
 };
 export {
-  SiYuanConnector as default
+  SiYuanConnector as default,
+  describeKernelError
 };
 //# sourceMappingURL=main.js.map

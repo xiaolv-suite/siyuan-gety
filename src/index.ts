@@ -44,8 +44,44 @@ const DOC_TYPE = 'siyuan:doc';
 /** Number of concurrent exportMdContent requests during a poll. */
 const EXPORT_CONCURRENCY = 6;
 
+/** Log a progress line every N exported batches, to stay inside the
+ * 10-minute activity window Gety enforces on long polls. */
+const PROGRESS_EVERY_BATCHES = 20;
+
 /** Shown instead of the title for documents with no exported content. */
 const EMPTY_DOC_PLACEHOLDER = '*（暂无内容）*';
+
+/**
+ * Turn a kernel/SQL error into an actionable install-time message. The
+ * sandbox denies unlisted hosts with a recognisable wording, and the default
+ * `api_url` is a loopback address, so permission failures deserve their own
+ * hint instead of a generic network error.
+ */
+export function describeKernelError(
+	apiUrl: string,
+	token: string,
+	err: unknown,
+): string {
+	const message = (err as Error).message ?? String(err);
+	if (/permission denied|not granted|EPERM|getaddrinfo/i.test(message)) {
+		return (
+			`Gety 未授权访问思源地址 ${apiUrl}。` +
+			`请在连接器设置中确认「思源 API 地址」填写正确，` +
+			`Gety 会按该字段自动授予网络访问权限；` +
+			`若思源不在该地址，请修改后重试。Cause: ${message}`
+		);
+	}
+	if (/HTTP 40[13]|Auth failed|token/i.test(message) && token.length > 0) {
+		return (
+			`思源 API 令牌被拒绝。请在思源「设置 → 关于 → API token」重新复制令牌并填入。` +
+			`Cause: ${message}`
+		);
+	}
+	return (
+		`无法连接思源内核 ${apiUrl}。请确认思源正在运行，且 API 地址与端口正确。` +
+		`Cause: ${message}`
+	);
+}
 
 function readDebugLogPath(): string | undefined {
 	try {
@@ -87,6 +123,17 @@ export default class SiYuanConnector extends Connector<
 		}
 	}
 
+	/**
+	 * Progress line for Gety's activity window. A poll that sends nothing to
+	 * Gety for 10 minutes is treated as hung and cancelled; console output
+	 * counts as activity. Kept low-frequency to avoid log spam: phase
+	 * boundaries plus every `PROGRESS_EVERY_BATCHES` batches.
+	 */
+	private progress(msg: string): void {
+		console.info(`[siyuan-gety] ${msg}`);
+		this.debug(msg);
+	}
+
 	override async onLoad(): Promise<void> {
 		const apiUrl = (this.config.api_url ?? 'http://localhost:6806').trim();
 		const apiToken = (this.config.api_token ?? '').trim();
@@ -103,11 +150,7 @@ export default class SiYuanConnector extends Connector<
 		} catch (err) {
 			this.debug(`version() FAILED: ${(err as Error).message}`);
 			this.flushDebug();
-			throw new Error(
-				`Could not reach SiYuan kernel at ${apiUrl}. ` +
-					`Ensure SiYuan is running and the API URL is correct. ` +
-					`Cause: ${(err as Error).message}`,
-			);
+			throw new Error(describeKernelError(apiUrl, apiToken, err));
 		}
 
 		try {
@@ -122,18 +165,16 @@ export default class SiYuanConnector extends Connector<
 			this.flushDebug();
 			throw new Error(
 				apiToken === ''
-					? `SiYuan API token is required but not provided. ` +
-						`Get it from SiYuan: Settings > About > API token. ` +
+					? `需要填写思源 API 令牌：思源「设置 → 关于 → API token」。` +
 						`Cause: ${(err as Error).message}`
-					: `SiYuan API token is invalid or rejected. ` +
-						`Regenerate it in SiYuan: Settings > About > API token. ` +
-						`Cause: ${(err as Error).message}`,
+					: describeKernelError(apiUrl, apiToken, err),
 			);
 		}
 	}
 
 	async *poll(): AsyncGenerator<PollResult, void, unknown> {
 		this.debug(`poll start. concurrency=${EXPORT_CONCURRENCY}`);
+		this.progress('sync started');
 
 		const allNotebooks = await this.client.lsNotebooks();
 		const notebooks = allNotebooks.filter((nb) => !nb.closed);
@@ -233,6 +274,10 @@ export default class SiYuanConnector extends Connector<
 			`poll: ${docsToFetch.length} docs to fetch (new/updated/retry), ` +
 				`${deletedDocIds.length} to delete`,
 		);
+		this.progress(
+			`${notebooks.length} notebooks, ${docsToFetch.length} docs to index, ` +
+				`${deletedDocIds.length} to delete`,
+		);
 
 		const nextDocs: Record<string, string> = { ...previousDocs };
 		for (const id of deletedDocIds) delete nextDocs[id];
@@ -268,6 +313,7 @@ export default class SiYuanConnector extends Connector<
 
 		// Phase 5: concurrent export + batch yield.
 		let yielded = 0;
+		let batchIndex = 0;
 		for (let i = 0; i < docsToFetch.length; i += EXPORT_CONCURRENCY) {
 			if (this.signal.aborted) return;
 
@@ -323,9 +369,15 @@ export default class SiYuanConnector extends Connector<
 			}
 
 			yielded += batch.length;
+			batchIndex += 1;
 			this.debug(
 				`poll: yielding batch of ${batch.length} docs (total=${yielded})`,
 			);
+			if (batchIndex % PROGRESS_EVERY_BATCHES === 0) {
+				this.progress(
+					`indexed ${yielded}/${docsToFetch.length} docs`,
+				);
+			}
 			yield {
 				updates: batch,
 				state: checkpoint(),

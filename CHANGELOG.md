@@ -2,6 +2,54 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.5.2] - 2026-11-18
+
+对齐 Gety 官方连接器规范
+（[build-a-connector](https://docs.gety.ai/zh-Hans/build-a-connector) 与
+[connector reference](https://docs.gety.ai/connector-reference)），以便登记进
+精选连接器 → 社区列表。
+
+### Added
+
+- **沙箱权限声明 (`permissions`)** — 声明 `net: [{ "config_field": "api_url" }]`
+  动态授权，Gety 按用户填写的思源地址自动授予网络访问。此前未声明 `permissions`
+  会以完全权限运行并触发红色高危警告；现在仅在授权范围内运行，
+  且用户修改地址后授权自动更新、无需二次审阅。
+- **`sync_version: 2`** — 0.5.1 重写了 Markdown 清洗管线（层级标签、嵌套超级块、
+  代码围栏）与文档内容语义，老用户升级若复用旧 state 会保留旧内容。提升
+  `sync_version` 让 Gety 在升级时清空本连接器文档并全量重同步。
+- **npm 打包支持 (`package.json` + `scripts/sync-package.ts`)** — Gety 从 npm
+  安装时只读取 `package.json` 的 `gety` 字段，**忽略包内的 `manifest.json`**。
+  新增同步脚本把 `manifest.json` 单向投射为 `package.json` 的 `version`、
+  `description`、`files` 与完整 `gety`；`deno task sync:check` 在 `verify` 与
+  `prepublishOnly` 双重把关，杜绝两份元数据漂移。
+- **图标纳入 npm 包** — 精选列表图标取自登记版本 tarball 中 manifest `icon`
+  指向的文件。`icon.svg`（568 B）为列表图标，`icon.png`（512×512，5.4 KiB）
+  作位图备用，均满足 24 KiB 与 2048 px 上限。
+- **10 分钟活动窗口心跳** — Gety 会取消连续 10 分钟既无产出又无日志的 poll。
+  新增低频 `console.info` 进度行（poll 开始、待索引统计、每 20 批的索引进度），
+  满足长库首同步的心跳要求，同时避免高频日志刷屏。
+- **可操作的错误提示** — 新增 `describeKernelError()`，把沙箱拒网
+  （`permission denied` / `EPERM` / `getaddrinfo`）、令牌被拒、内核不可达三类
+  故障分别翻译成带修复指引的中文提示，替换原先笼统的
+  `Could not reach SiYuan kernel`。
+- **配置字段说明** — `api_url` 增加 `placeholder` 与 `description`（说明该字段
+  同时是网络授权依据）；`api_token` 补充获取路径。安装表单即可自助排错。
+
+### Changed
+
+- `min_gety_app_version` 由 `0.5.1` 提升至 `0.7.0`：沙箱与 `sync_version`
+  均要求该版本；更低版本会拒绝安装，而不是静默以完全权限运行。
+- `deno task verify` 顺序改为「先 build 再 sync:check」，使 CI 在干净检出时也能
+  通过校验。`dist/main.js` 与 `dist/main.js.map` 一并入库，local 与 CI
+  复现一致。
+
+### Fixed
+
+- `.gitignore` 原先忽略 `dist/main.js.map`，导致 `sync:check` 在 CI 干净检出时报
+  `dist/main.js.map is missing`，Release 工作流连续失败。现在 sourcemap 入库，
+  改为忽略 `release/` 产物目录。
+
 ## [0.5.1] - 2026-11-16
 
 ### Added

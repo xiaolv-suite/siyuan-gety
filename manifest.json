@@ -1,8 +1,9 @@
 {
 	"id": "siyuan-gety",
 	"name": "SiYuan Note",
-	"version": "0.5.1",
+	"version": "0.5.2",
 	"min_gety_app_version": "0.7.0",
+	"sync_version": 2,
 	"permissions": {
 		"net": [
 			{
@@ -13,7 +14,7 @@
 	"capabilities": ["data-source"],
 	"entry": "dist/main.js",
 	"icon": "icon.svg",
-	"description": "小驴思源生态配套 · 索引思源笔记文档并通过本地 HTTP API 全文检索与跳转编辑。XiaoLv Suite Companion - Indexes SiYuan Note documents via local HTTP API.",
+	"description": "小驴思源生态配套 · 索引思源笔记文档并通过本地 HTTP API 全文检索与跳转编辑。XiaoLv Suite companion that indexes SiYuan Note documents via the local kernel HTTP API.",
 	"author": {
 		"name": "xiaolv-suite",
 		"url": "https://github.com/xiaolv-suite"
@@ -30,16 +31,19 @@
 		"fields": [
 			{
 				"id": "api_url",
-				"title": "API 地址",
+				"title": "思源 API 地址",
 				"type": "text",
 				"required": true,
-				"default_value": "http://localhost:6806"
+				"default_value": "http://localhost:6806",
+				"placeholder": "http://localhost:6806",
+				"description": "思源笔记内核 HTTP API 地址。默认端口 6806；若在思源设置中改过端口，请填写实际地址。此地址同时用于本连接器的网络访问授权。"
 			},
 			{
 				"id": "api_token",
-				"title": "API 令牌",
+				"title": "思源 API 令牌",
 				"type": "password",
-				"required": true
+				"required": true,
+				"description": "在思源笔记「设置 → 关于 → API token」中复制。若思源未开启鉴权可留空字符串。"
 			}
 		]
 	},

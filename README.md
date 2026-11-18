@@ -34,7 +34,19 @@
 
 ## 📦 安装指南 (Install in Gety)
 
-### 方式一：从 Release 下载预打包（推荐）
+### 方式一：从 npm 安装（推荐，精选列表同源）
+
+```bash
+# 在 Gety 的 Connectors 设置中选 Install from remote，填入：
+siyuan-gety
+```
+
+或命令行：`gety connector install --npm siyuan-gety`
+
+> Gety 从 npm 安装时读取 `package.json` 的 `gety` 字段（由 `manifest.json`
+> 单向同步生成），包内 `manifest.json` 不参与解析。
+
+### 方式二：从 Release 下载预打包
 
 1. 前往 [Releases](https://github.com/xiaolv-suite/siyuan-gety/releases)
    下载最新的 `siyuan-gety-<version>.zip`（或兼容包
@@ -44,7 +56,7 @@
 4. 点击 **Install connector**，选择解压后的文件夹（包含 `manifest.json`）
 5. 填写思源 API 地址与 Token，点击 **Update now** 即可瞬间建立索引
 
-### 方式二：从源码安装
+### 方式三：从源码安装
 
 1. Clone
    本仓库到本地：`git clone https://github.com/xiaolv-suite/siyuan-gety.git`
@@ -54,6 +66,23 @@
 安装后在 Gety → Settings → Connectors 中点击 **Update now** 触发首次索引
 （视文档数量而定，并发模式下通常 30 秒-1 分钟）。之后默认每 30
 分钟增量同步一次。
+
+## 🔐 权限说明 (Permissions)
+
+本连接器以**沙箱模式**运行，需要 Gety **0.7.0 或更新版本**：
+
+```json
+"permissions": {
+  "net": [{ "config_field": "api_url" }]
+}
+```
+
+- **动态网络授权**：网络访问范围由您填写的「思源 API 地址」决定，Gety 在安装
+  时按该值授予权限。修改地址后授权自动跟随，无需重新审阅。
+- **不声明 `permissions`** 的连接器会以完全权限运行并触发红色高危警告；本连接器
+  刻意声明了最小授权，避免该风险。
+- 若安装后报 `permission denied: net access to "…" is not granted`，说明 API
+  地址填写与实际思源地址不一致，改正即可。
 
 ## Configuration / 配置
 
