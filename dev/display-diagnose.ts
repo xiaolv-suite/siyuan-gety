@@ -148,15 +148,15 @@ const ARTIFACT_PATTERNS: Array<{ name: string; re: RegExp }> = [
 	{ name: '嵌入块残留 {{{', re: /\{\{\{/ },
 	{ name: '嵌入块残留 }}}', re: /\}\}\}/ },
 	{ name: '块引用残留 ((', re: /\(\(\d{14}-/ },
-	{ name: '高亮语法 ==x==', re: /==\S/ },
+	{ name: '高亮语法 ==x==', re: /(?<!=)==[^\s=]+==(?!=)/ },
 	{ name: 'HTML span 标签', re: /<span[^>]*>/i },
 	{ name: 'HTML div 标签', re: /<div[^>]*>/i },
 	{ name: 'HTML br 标签', re: /<br\s*\/?>/i },
 	{ name: '其他 HTML 标签', re: /<(?!span|div|br)[a-z][a-z0-9]*[\s>]/i },
-	{ name: '图片 assets/', re: /!\[[^\]]*\]\([^)]*assets\// },
+	{ name: '图片 assets/', re: /!\[[^\]]*\]\((?!https?:|\/\/)[^)]*assets\// },
 	{ name: '裸 siyuan://', re: /(?<!\]\()siyuan:\/\// },
 	{ name: '零宽字符', re: /[\u200B\u200C\u200D\uFEFF\u2060\u00AD]/ },
-	{ name: 'YAML frontmatter', re: /^---\s*$/m },
+	{ name: 'YAML frontmatter', re: /^---\r?\n(?:title|date|lastmod|tags):/m },
 	{ name: '连续空行(3+)', re: /\n{3,}/ },
 	{ name: '空行后紧跟引用符', re: /\n> \n/ },
 ];
@@ -361,8 +361,8 @@ console.log(`  标题长度: 平均 ${avgLen} 字, 最长 ${maxLen} 字`);
 console.log(`  超 50 字: ${titleLengths.filter((l) => l > 50).length} 篇`);
 console.log(`  空文档: ${emptyContent} 篇`);
 console.log(
-	`  original_file_size 低估: 平均每篇 ${
+	`  UTF-8 字节增量: 平均每篇 +${
 		Math.round(byteDelta / (sample.length || 1))
-	} 字节（按字符数计而非字节数）`,
+	} 字节（相比字符数，UTF-8 正确编码）`,
 );
 console.log('\n诊断完成（未输出任何笔记正文）。');

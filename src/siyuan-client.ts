@@ -117,7 +117,7 @@ export class SiYuanClient {
 			`FROM blocks WHERE type = 'd' AND box = '${
 				this.escapeSql(notebookId)
 			}' ` +
-			`ORDER BY path ASC`;
+			`ORDER BY path ASC LIMIT 999999`;
 		return this.query(stmt);
 	}
 
@@ -139,7 +139,7 @@ export class SiYuanClient {
 				this.escapeSql(notebookId)
 			}' ` +
 			`AND updated >= '${this.escapeSql(sinceTimestamp)}' ` +
-			`ORDER BY path ASC`;
+			`ORDER BY path ASC LIMIT 999999`;
 		return this.query(stmt);
 	}
 
@@ -153,7 +153,16 @@ export class SiYuanClient {
 			`SELECT id FROM blocks WHERE type = 'd' AND box = '${
 				this.escapeSql(notebookId)
 			}' ` +
-			`ORDER BY path ASC`;
+			`ORDER BY path ASC LIMIT 999999`;
+		return this.query(stmt);
+	}
+
+	/**
+	 * List all live document IDs across all open notebooks in a single query.
+	 * Avoids N serial round-trips for deletion detection.
+	 */
+	listAllDocIds(): Promise<SiyuanBlock[]> {
+		const stmt = `SELECT id FROM blocks WHERE type = 'd' LIMIT 999999`;
 		return this.query(stmt);
 	}
 
@@ -170,7 +179,7 @@ export class SiYuanClient {
 			`SELECT id, parent_id, root_id, content, type, subtype, hpath, path, box, ` +
 			`updated, created, name, alias, memo, tag, ial ` +
 			`FROM blocks WHERE type = 'd' AND id IN (${quoted}) ` +
-			`ORDER BY path ASC`;
+			`ORDER BY path ASC LIMIT 999999`;
 		return this.query(stmt);
 	}
 

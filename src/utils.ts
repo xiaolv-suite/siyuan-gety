@@ -39,7 +39,11 @@ export function toRfc3339(ts: string | undefined): string | undefined {
 // transforms have run.
 // ───────────────────────────────────────────────────────────────────────────
 
-const CODE_FENCE_RE = /```[\s\S]*?```/g;
+// CommonMark code fence (3+ backticks or tildes, with matching closing fence)
+const FENCE_RE =
+	/(^|\n)( *)(`{3,}|~{3,})[^\n]*\r?\n[\s\S]*?\r?\n\2\3+ *(?=\r?\n|$)/g;
+// Fallback for simple/unclosed triple backtick blocks
+const SIMPLE_FENCE_RE = /```[\s\S]*?```/g;
 const INLINE_CODE_RE = /`[^`\n]+`/g;
 const MATH_BLOCK_RE = /\$\$[\s\S]*?\$\$/g;
 const MATH_INLINE_RE = /\$[^$\n]+\$/g;
@@ -61,6 +65,15 @@ export function protectCode(markdown: string): ProtectedState {
 	const store: string[] = [];
 	let result = markdown;
 
+	// CommonMark code fences (3+ backticks or tildes).
+	// Preserves leading prefix newline so line-anchored regexes still work.
+	result = result.replace(FENCE_RE, (match, prefix: string) => {
+		const fence = match.slice(prefix.length);
+		const idx = store.length;
+		store.push(fence);
+		return `${prefix}\x00FENCE${idx}\x00`;
+	});
+
 	const stash = (re: RegExp, prefix: string) => {
 		result = result.replace(re, (match) => {
 			const idx = store.length;
@@ -69,9 +82,8 @@ export function protectCode(markdown: string): ProtectedState {
 		});
 	};
 
-	// Order matters: fenced blocks first (they may contain backticks inside),
-	// then math blocks, then inline code, then inline math.
-	stash(CODE_FENCE_RE, 'FENCE');
+	// Fallback for any remaining unclosed or single-line fences
+	stash(SIMPLE_FENCE_RE, 'FENCE');
 	stash(MATH_BLOCK_RE, 'MATHB');
 	stash(INLINE_CODE_RE, 'INLINE');
 	stash(MATH_INLINE_RE, 'MATHI');
@@ -97,16 +109,18 @@ export function protectCode(markdown: string): ProtectedState {
  * Code blocks and inline code are protected first so `#include` or shell
  * comments are not mistaken for tags.
  *
- * Supports ASCII and CJK tag names. Caps at 20 tags.
+ * Supports ASCII and CJK tag names, as well as SiYuan hierarchical tags (e.g. #parent/child).
+ * Caps at 20 tags.
  */
 export function extractTags(markdown: string): string {
 	if (!markdown) return '';
 	const { clean, restore: _restore } = protectCode(markdown);
 	const tags = new Set<string>();
-	const tagRe = /(?:^|\s)#([a-zA-Z\u4e00-\u9fa5][\w\u4e00-\u9fa5-]*)/g;
+	const tagRe = /(?:^|\s)#([a-zA-Z\u4e00-\u9fa5][\w\u4e00-\u9fa5\/-]*)/g;
 	let m: RegExpExecArray | null;
 	while ((m = tagRe.exec(clean)) !== null) {
-		tags.add(m[1]);
+		const cleanTag = m[1].replace(/[\/#]+$/, '');
+		if (cleanTag) tags.add(cleanTag);
 		if (tags.size >= 20) break;
 	}
 	return Array.from(tags).join(',');
@@ -119,7 +133,9 @@ export function extractTags(markdown: string): string {
  */
 export function extractFrontmatterTags(markdown: string): string {
 	if (!markdown) return '';
-	const fm = markdown.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+	const fm = markdown.match(
+		/^[\uFEFF\u200B\u200C\u200D\u2060\u00AD\s]*---\r?\n([\s\S]*?)\r?\n---/,
+	);
 	if (!fm) return '';
 	const body = fm[1];
 	// Flow sequence: tags: [tag1, tag2]
@@ -163,11 +179,13 @@ export function extractFrontmatterTags(markdown: string): string {
 
 /**
  * Strip a leading YAML frontmatter block (`---\n...\n---\n`) from Markdown
- * content exported by SiYuan.
+ * content exported by SiYuan. Supports optional leading BOM or invisible characters.
  */
 export function stripFrontmatter(markdown: string): string {
 	if (!markdown) return '';
-	const match = markdown.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/);
+	const match = markdown.match(
+		/^[\uFEFF\u200B\u200C\u200D\u2060\u00AD\s]*---\r?\n[\s\S]*?\r?\n---\r?\n?/,
+	);
 	if (match) {
 		return markdown.slice(match[0].length);
 	}
@@ -185,13 +203,13 @@ export function stripInvisibleChars(text: string): string {
 
 /**
  * Strip inline HTML tags that SiYuan embeds in exported Markdown.
- * Enhanced to cover table/list/media wrappers that HTML blocks may emit.
+ * Enhanced to cover table/list/media/custom wrappers that HTML blocks may emit.
  */
 export function stripInlineHtml(markdown: string): string {
 	if (!markdown) return '';
 	return markdown
-		// Remove executable/style blocks together with their contents.
-		.replace(/<(script|style|iframe)\b[^>]*>[\s\S]*?<\/\1>/gi, '')
+		// Remove executable/style/svg blocks together with their contents.
+		.replace(/<(script|style|iframe|svg)\b[^>]*>[\s\S]*?<\/\1>/gi, '')
 		// Preserve ordinary links before removing their HTML wrappers.
 		.replace(
 			/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi,
@@ -206,14 +224,16 @@ export function stripInlineHtml(markdown: string): string {
 		.replace(/<img\b[^>]*>/gi, '')
 		// Block-level wrappers: drop tags, keep content, add line break.
 		.replace(
-			/<\/?(?:div|p|section|article|header|footer|nav|aside|figure|figcaption|table|thead|tbody|tr|td|th|ul|ol|li|dl|dt|dd|blockquote|pre|h[1-6])\b[^>]*>/gi,
+			/<\/?(?:div|p|section|article|header|footer|nav|aside|figure|figcaption|table|thead|tbody|tr|td|th|ul|ol|li|dl|dt|dd|blockquote|pre|h[1-6]|details|summary)\b[^>]*>/gi,
 			'\n',
 		)
 		// Inline wrappers: drop tags, keep inner text.
 		.replace(
-			/<\/?(?:span|font|em|strong|b|i|u|s|del|ins|mark|sub|sup|small|big|label|code|abbr|kbd|samp|var|a|button|input|select|textarea|iframe|style|script|video|audio|source|track)\b[^>]*>/gi,
+			/<\/?(?:span|font|em|strong|b|i|u|s|del|ins|mark|sub|sup|small|big|label|code|abbr|kbd|samp|var|a|button|input|select|textarea|video|audio|source|track|ruby|rt|rp|canvas|picture)\b[^>]*>/gi,
 			'',
-		);
+		)
+		// Strip any residual HTML tags while preserving text
+		.replace(/<(?:\/)?[a-zA-Z][a-zA-Z0-9_-]*(?:\s+[^>]*)?>/g, '');
 }
 
 /**
@@ -239,35 +259,46 @@ export function convertBlockRefs(markdown: string): string {
 }
 
 /**
- * Clean SiYuan embed block syntax `{{{row\n...\n}}}` by stripping the
+ * Clean SiYuan embed block / superblock syntax `{{{row\n...\n}}}` by stripping the
  * markers and keeping the inner content, wrapped in a blockquote.
  *
- * Enhanced to handle nested attributes and empty reference embeds.
+ * Handles nested superblocks (e.g. row containing col) iteratively.
  */
 export function cleanEmbedBlocks(markdown: string): string {
 	if (!markdown) return '';
-	const re = /\{\{\{\s*(?:row|col)\b([^\n]*)\r?\n?([\s\S]*?)\r?\n?\}\}\}/gi;
-	return markdown.replace(re, (_match, attrs: string, body: string) => {
-		const inner = body.trim();
-		if (inner) {
-			return inner
-				.split('\n')
-				.map((l) => `> ${l.trim()}`)
-				.join('\n');
-		}
-		// Empty embed: recover the referenced block id when present.
-		const idMatch = attrs.match(new RegExp(SIYUAN_ID, 'i'));
-		if (idMatch) return `[↗](siyuan://blocks/${idMatch[0]})`;
-		return '';
-	});
+	let result = markdown;
+	// Match innermost superblocks first
+	const re =
+		/\{\{\{\s*(?:row|col)\b([^\n]*)\r?\n?((?:(?!\{\{\{\s*(?:row|col))[\s\S])*?)\r?\n?\}\}\}/gi;
+	let prev: string;
+	let iterations = 0;
+	do {
+		prev = result;
+		result = result.replace(re, (_match, attrs: string, body: string) => {
+			const inner = body.trim();
+			if (inner) {
+				return inner
+					.split('\n')
+					.map((l) => `> ${l.trim()}`)
+					.join('\n');
+			}
+			// Empty embed: recover the referenced block id when present.
+			const idMatch = attrs.match(new RegExp(SIYUAN_ID, 'i'));
+			if (idMatch) return `[↗](siyuan://blocks/${idMatch[0]})`;
+			return '';
+		});
+		iterations++;
+	} while (result !== prev && iterations < 10);
+	return result;
 }
 
 /**
  * Convert SiYuan highlight syntax `==text==` to bold `**text**`.
+ * Uses negative lookaround to avoid touching ASCII banners or dividers (e.g. `======text======`).
  */
 export function convertHighlights(markdown: string): string {
 	if (!markdown) return '';
-	return markdown.replace(/==([^\n=]+)==/g, '**$1**');
+	return markdown.replace(/(?<!=)==([^\n=]+)==(?!=)/g, '**$1**');
 }
 
 /**
@@ -499,10 +530,18 @@ export function extractIALIcon(ial?: string): string {
 }
 
 /**
- * Convert a SiYuan notebook icon codepoint string to an emoji character.
+ * Convert a SiYuan notebook or document icon codepoint string to an emoji character.
+ * Supports:
+ * - Hex codepoint sequences ("1f4d4", "0031-fe0f-20e3")
+ * - Dynamic daily note icons ("api/icon/getDynamicIcon?type=1&date=...") -> 📅
+ * - Direct emoji strings ("🐴")
  */
 export function iconCodepointToEmoji(icon: string | undefined): string {
 	if (!icon) return '';
+	if (icon.startsWith('api/icon/getDynamicIcon')) return '📅';
+	if (/\p{Extended_Pictographic}/u.test(icon) && !icon.includes('-')) {
+		return icon;
+	}
 	try {
 		const codepoints = icon.split('-').map((hex) => parseInt(hex, 16));
 		if (codepoints.some((cp) => Number.isNaN(cp))) return '';
@@ -514,14 +553,26 @@ export function iconCodepointToEmoji(icon: string | undefined): string {
 
 /**
  * Remove a leading H1 heading from Markdown if it matches the document title.
+ * Resilient against emoji prefixes and notebook breadcrumbs in the title.
  */
 export function stripDuplicateH1(markdown: string, title: string): string {
 	if (!markdown || !title) return markdown;
 	const lines = markdown.split('\n');
 	if (lines.length === 0) return markdown;
 	const firstLine = lines[0].trim();
-	const titleCore = title.split(' · ')[0];
-	if (firstLine === `# ${title}` || firstLine === `# ${titleCore}`) {
+	const titleCore = title.split(' · ')[0].trim();
+	const titleWithoutEmoji = titleCore
+		.replace(/^\p{Extended_Pictographic}\s*/u, '')
+		.trim();
+	const firstLineWithoutEmoji = firstLine
+		.replace(/^#\s*\p{Extended_Pictographic}\s*/u, '# ')
+		.trim();
+	if (
+		firstLine === `# ${title}` ||
+		firstLine === `# ${titleCore}` ||
+		firstLine === `# ${titleWithoutEmoji}` ||
+		firstLineWithoutEmoji === `# ${titleWithoutEmoji}`
+	) {
 		return lines.slice(1).join('\n').replace(/^\n+/, '');
 	}
 	return markdown;

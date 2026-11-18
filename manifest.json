@@ -1,14 +1,15 @@
 {
 	"id": "siyuan-gety",
-	"name": "Siyuan Note",
-	"version": "0.5.0",
+	"name": "SiYuan Note",
+	"version": "0.5.1",
 	"min_gety_app_version": "0.5.1",
 	"capabilities": ["data-source"],
 	"entry": "dist/main.js",
 	"icon": "icon.svg",
-	"description": "索引思源笔记文档，通过本地 HTTP API 全文检索。Indexes SiYuan Note documents via local HTTP API.",
+	"description": "小驴思源生态配套 · 索引思源笔记文档并通过本地 HTTP API 全文检索与跳转编辑。XiaoLv Suite Companion - Indexes SiYuan Note documents via local HTTP API.",
 	"author": {
-		"name": "WorkBuddy User"
+		"name": "xiaolv-suite",
+		"url": "https://github.com/xiaolv-suite"
 	},
 	"schedule": {
 		"strategy": "interval",

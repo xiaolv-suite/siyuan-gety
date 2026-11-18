@@ -38,7 +38,7 @@ var SiYuanClient = class {
   }
   /** List all document blocks for a notebook via SQL (full metadata). */
   listDocBlocks(notebookId) {
-    const stmt = `SELECT id, parent_id, root_id, content, type, subtype, hpath, path, box, updated, created, name, alias, memo, tag, ial FROM blocks WHERE type = 'd' AND box = '${this.escapeSql(notebookId)}' ORDER BY path ASC`;
+    const stmt = `SELECT id, parent_id, root_id, content, type, subtype, hpath, path, box, updated, created, name, alias, memo, tag, ial FROM blocks WHERE type = 'd' AND box = '${this.escapeSql(notebookId)}' ORDER BY path ASC LIMIT 999999`;
     return this.query(stmt);
   }
   /**
@@ -49,7 +49,7 @@ var SiYuanClient = class {
    * since the last poll, avoiding a full metadata scan on steady state.
    */
   listDocBlocksSince(notebookId, sinceTimestamp) {
-    const stmt = `SELECT id, parent_id, root_id, content, type, subtype, hpath, path, box, updated, created, name, alias, memo, tag, ial FROM blocks WHERE type = 'd' AND box = '${this.escapeSql(notebookId)}' AND updated >= '${this.escapeSql(sinceTimestamp)}' ORDER BY path ASC`;
+    const stmt = `SELECT id, parent_id, root_id, content, type, subtype, hpath, path, box, updated, created, name, alias, memo, tag, ial FROM blocks WHERE type = 'd' AND box = '${this.escapeSql(notebookId)}' AND updated >= '${this.escapeSql(sinceTimestamp)}' ORDER BY path ASC LIMIT 999999`;
     return this.query(stmt);
   }
   /**
@@ -58,7 +58,15 @@ var SiYuanClient = class {
    * deletion detection (IDs present in state but missing from source).
    */
   listDocIds(notebookId) {
-    const stmt = `SELECT id FROM blocks WHERE type = 'd' AND box = '${this.escapeSql(notebookId)}' ORDER BY path ASC`;
+    const stmt = `SELECT id FROM blocks WHERE type = 'd' AND box = '${this.escapeSql(notebookId)}' ORDER BY path ASC LIMIT 999999`;
+    return this.query(stmt);
+  }
+  /**
+   * List all live document IDs across all open notebooks in a single query.
+   * Avoids N serial round-trips for deletion detection.
+   */
+  listAllDocIds() {
+    const stmt = `SELECT id FROM blocks WHERE type = 'd' LIMIT 999999`;
     return this.query(stmt);
   }
   /**
@@ -70,7 +78,7 @@ var SiYuanClient = class {
   listDocsByIds(ids) {
     if (ids.length === 0) return Promise.resolve([]);
     const quoted = ids.map((id) => `'${this.escapeSql(id)}'`).join(", ");
-    const stmt = `SELECT id, parent_id, root_id, content, type, subtype, hpath, path, box, updated, created, name, alias, memo, tag, ial FROM blocks WHERE type = 'd' AND id IN (${quoted}) ORDER BY path ASC`;
+    const stmt = `SELECT id, parent_id, root_id, content, type, subtype, hpath, path, box, updated, created, name, alias, memo, tag, ial FROM blocks WHERE type = 'd' AND id IN (${quoted}) ORDER BY path ASC LIMIT 999999`;
     return this.query(stmt);
   }
   /** Run an arbitrary SQL query against the SiYuan kernel. */
@@ -164,7 +172,8 @@ function toRfc3339(ts) {
   if (Number.isNaN(ms)) return void 0;
   return new Date(ms).toISOString();
 }
-var CODE_FENCE_RE = /```[\s\S]*?```/g;
+var FENCE_RE = /(^|\n)( *)(`{3,}|~{3,})[^\n]*\r?\n[\s\S]*?\r?\n\2\3+ *(?=\r?\n|$)/g;
+var SIMPLE_FENCE_RE = /```[\s\S]*?```/g;
 var INLINE_CODE_RE = /`[^`\n]+`/g;
 var MATH_BLOCK_RE = /\$\$[\s\S]*?\$\$/g;
 var MATH_INLINE_RE = /\$[^$\n]+\$/g;
@@ -172,6 +181,12 @@ var PLACEHOLDER_RE = /\x00(?:FENCE|INLINE|MATHB|MATHI)\d+\x00/g;
 function protectCode(markdown) {
   const store = [];
   let result = markdown;
+  result = result.replace(FENCE_RE, (match, prefix) => {
+    const fence = match.slice(prefix.length);
+    const idx = store.length;
+    store.push(fence);
+    return `${prefix}\0FENCE${idx}\0`;
+  });
   const stash = (re, prefix) => {
     result = result.replace(re, (match) => {
       const idx = store.length;
@@ -179,7 +194,7 @@ function protectCode(markdown) {
       return `\0${prefix}${idx}\0`;
     });
   };
-  stash(CODE_FENCE_RE, "FENCE");
+  stash(SIMPLE_FENCE_RE, "FENCE");
   stash(MATH_BLOCK_RE, "MATHB");
   stash(INLINE_CODE_RE, "INLINE");
   stash(MATH_INLINE_RE, "MATHI");
@@ -195,17 +210,20 @@ function extractTags(markdown) {
   if (!markdown) return "";
   const { clean, restore: _restore } = protectCode(markdown);
   const tags = /* @__PURE__ */ new Set();
-  const tagRe = /(?:^|\s)#([a-zA-Z\u4e00-\u9fa5][\w\u4e00-\u9fa5-]*)/g;
+  const tagRe = /(?:^|\s)#([a-zA-Z\u4e00-\u9fa5][\w\u4e00-\u9fa5\/-]*)/g;
   let m;
   while ((m = tagRe.exec(clean)) !== null) {
-    tags.add(m[1]);
+    const cleanTag = m[1].replace(/[\/#]+$/, "");
+    if (cleanTag) tags.add(cleanTag);
     if (tags.size >= 20) break;
   }
   return Array.from(tags).join(",");
 }
 function extractFrontmatterTags(markdown) {
   if (!markdown) return "";
-  const fm = markdown.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  const fm = markdown.match(
+    /^[\uFEFF\u200B\u200C\u200D\u2060\u00AD\s]*---\r?\n([\s\S]*?)\r?\n---/
+  );
   if (!fm) return "";
   const body = fm[1];
   let m = body.match(/^tags:\s*\[([^\]]*)\]/m);
@@ -226,7 +244,9 @@ function extractFrontmatterTags(markdown) {
 }
 function stripFrontmatter(markdown) {
   if (!markdown) return "";
-  const match = markdown.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/);
+  const match = markdown.match(
+    /^[\uFEFF\u200B\u200C\u200D\u2060\u00AD\s]*---\r?\n[\s\S]*?\r?\n---\r?\n?/
+  );
   if (match) {
     return markdown.slice(match[0].length);
   }
@@ -238,19 +258,19 @@ function stripInvisibleChars(text) {
 }
 function stripInlineHtml(markdown) {
   if (!markdown) return "";
-  return markdown.replace(/<(script|style|iframe)\b[^>]*>[\s\S]*?<\/\1>/gi, "").replace(
+  return markdown.replace(/<(script|style|iframe|svg)\b[^>]*>[\s\S]*?<\/\1>/gi, "").replace(
     /<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi,
     (_match, href, text) => {
       const safe = /^(?:https?:|mailto:|siyuan:)/i.test(href.trim());
       return safe ? `[${text}](${href})` : text;
     }
   ).replace(/<br\s*\/?>/gi, "\n").replace(/<img\b[^>]*>/gi, "").replace(
-    /<\/?(?:div|p|section|article|header|footer|nav|aside|figure|figcaption|table|thead|tbody|tr|td|th|ul|ol|li|dl|dt|dd|blockquote|pre|h[1-6])\b[^>]*>/gi,
+    /<\/?(?:div|p|section|article|header|footer|nav|aside|figure|figcaption|table|thead|tbody|tr|td|th|ul|ol|li|dl|dt|dd|blockquote|pre|h[1-6]|details|summary)\b[^>]*>/gi,
     "\n"
   ).replace(
-    /<\/?(?:span|font|em|strong|b|i|u|s|del|ins|mark|sub|sup|small|big|label|code|abbr|kbd|samp|var|a|button|input|select|textarea|iframe|style|script|video|audio|source|track)\b[^>]*>/gi,
+    /<\/?(?:span|font|em|strong|b|i|u|s|del|ins|mark|sub|sup|small|big|label|code|abbr|kbd|samp|var|a|button|input|select|textarea|video|audio|source|track|ruby|rt|rp|canvas|picture)\b[^>]*>/gi,
     ""
-  );
+  ).replace(/<(?:\/)?[a-zA-Z][a-zA-Z0-9_-]*(?:\s+[^>]*)?>/g, "");
 }
 function convertBlockRefs(markdown) {
   if (!markdown) return "";
@@ -269,20 +289,28 @@ function convertBlockRefs(markdown) {
 }
 function cleanEmbedBlocks(markdown) {
   if (!markdown) return "";
-  const re = /\{\{\{\s*(?:row|col)\b([^\n]*)\r?\n?([\s\S]*?)\r?\n?\}\}\}/gi;
-  return markdown.replace(re, (_match, attrs, body) => {
-    const inner = body.trim();
-    if (inner) {
-      return inner.split("\n").map((l) => `> ${l.trim()}`).join("\n");
-    }
-    const idMatch = attrs.match(new RegExp(SIYUAN_ID, "i"));
-    if (idMatch) return `[\u2197](siyuan://blocks/${idMatch[0]})`;
-    return "";
-  });
+  let result = markdown;
+  const re = /\{\{\{\s*(?:row|col)\b([^\n]*)\r?\n?((?:(?!\{\{\{\s*(?:row|col))[\s\S])*?)\r?\n?\}\}\}/gi;
+  let prev;
+  let iterations = 0;
+  do {
+    prev = result;
+    result = result.replace(re, (_match, attrs, body) => {
+      const inner = body.trim();
+      if (inner) {
+        return inner.split("\n").map((l) => `> ${l.trim()}`).join("\n");
+      }
+      const idMatch = attrs.match(new RegExp(SIYUAN_ID, "i"));
+      if (idMatch) return `[\u2197](siyuan://blocks/${idMatch[0]})`;
+      return "";
+    });
+    iterations++;
+  } while (result !== prev && iterations < 10);
+  return result;
 }
 function convertHighlights(markdown) {
   if (!markdown) return "";
-  return markdown.replace(/==([^\n=]+)==/g, "**$1**");
+  return markdown.replace(/(?<!=)==([^\n=]+)==(?!=)/g, "**$1**");
 }
 function convertLocalAssets(markdown) {
   if (!markdown) return "";
@@ -399,6 +427,10 @@ function extractIALIcon(ial) {
 }
 function iconCodepointToEmoji(icon) {
   if (!icon) return "";
+  if (icon.startsWith("api/icon/getDynamicIcon")) return "\u{1F4C5}";
+  if (/\p{Extended_Pictographic}/u.test(icon) && !icon.includes("-")) {
+    return icon;
+  }
   try {
     const codepoints = icon.split("-").map((hex) => parseInt(hex, 16));
     if (codepoints.some((cp) => Number.isNaN(cp))) return "";
@@ -412,8 +444,10 @@ function stripDuplicateH1(markdown, title) {
   const lines = markdown.split("\n");
   if (lines.length === 0) return markdown;
   const firstLine = lines[0].trim();
-  const titleCore = title.split(" \xB7 ")[0];
-  if (firstLine === `# ${title}` || firstLine === `# ${titleCore}`) {
+  const titleCore = title.split(" \xB7 ")[0].trim();
+  const titleWithoutEmoji = titleCore.replace(/^\p{Extended_Pictographic}\s*/u, "").trim();
+  const firstLineWithoutEmoji = firstLine.replace(/^#\s*\p{Extended_Pictographic}\s*/u, "# ").trim();
+  if (firstLine === `# ${title}` || firstLine === `# ${titleCore}` || firstLine === `# ${titleWithoutEmoji}` || firstLineWithoutEmoji === `# ${titleWithoutEmoji}`) {
     return lines.slice(1).join("\n").replace(/^\n+/, "");
   }
   return markdown;
@@ -528,10 +562,15 @@ var SiYuanConnector = class extends Connector {
       if (nb.icon) notebookIcons.set(nb.id, nb.icon);
     }
     const liveIds = /* @__PURE__ */ new Set();
-    for (const nb of allNotebooks) {
-      if (this.signal.aborted) return;
-      const ids = await this.client.listDocIds(nb.id);
-      for (const b of ids) liveIds.add(b.id);
+    if (typeof this.client.listAllDocIds === "function") {
+      const allLiveDocs = await this.client.listAllDocIds();
+      for (const b of allLiveDocs) liveIds.add(b.id);
+    } else {
+      for (const nb of allNotebooks) {
+        if (this.signal.aborted) return;
+        const ids = await this.client.listDocIds(nb.id);
+        for (const b of ids) liveIds.add(b.id);
+      }
     }
     this.debug(`poll: ${liveIds.size} live doc IDs across all notebooks`);
     const previousDocs = this.lastState?.knownDocs ?? {};
@@ -680,9 +719,11 @@ var SiYuanConnector = class extends Connector {
     const notebookIcon = notebookIcons.get(notebookId);
     const rawTitle = doc.content || doc.hpath || doc.id;
     const docIcon = extractIALIcon(doc.ial);
-    const iconCodepoint = docIcon || notebookIcon;
-    const iconEmoji = iconCodepointToEmoji(iconCodepoint);
-    const titleWithIcon = iconEmoji ? `${iconEmoji} ${rawTitle}` : rawTitle;
+    const docEmoji = iconCodepointToEmoji(docIcon);
+    const nbEmoji = iconCodepointToEmoji(notebookIcon);
+    const iconEmoji = docEmoji || nbEmoji;
+    const iconCodepoint = docEmoji ? docIcon : notebookIcon ?? docIcon;
+    const titleWithIcon = iconEmoji && !rawTitle.startsWith(iconEmoji) ? `${iconEmoji} ${rawTitle}` : rawTitle;
     const title = truncateTitle(titleWithIcon);
     const updatedAt = toRfc3339(doc.updated);
     const createdAt = toRfc3339(doc.created);
@@ -703,8 +744,17 @@ var SiYuanConnector = class extends Connector {
     const tagSet = /* @__PURE__ */ new Set();
     for (const t of fmTags.split(",")) if (t) tagSet.add(t);
     for (const t of bodyTags.split(",")) if (t) tagSet.add(t);
-    const nativeTags = extractTags((doc.tag ?? "").replace(/#/g, " #"));
-    for (const t of nativeTags.split(",")) if (t) tagSet.add(t);
+    if (doc.tag) {
+      const matches = doc.tag.match(
+        /#([a-zA-Z\u4e00-\u9fa5][\w\u4e00-\u9fa5\/-]*)/g
+      );
+      if (matches) {
+        for (const m of matches) {
+          const cleanTag = m.replace(/^#+/, "").replace(/[\/#]+$/, "");
+          if (cleanTag) tagSet.add(cleanTag);
+        }
+      }
+    }
     const tags = Array.from(tagSet).slice(0, 20).join(",");
     const header = buildContentHeader(
       pathBreadcrumb || void 0,

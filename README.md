@@ -1,92 +1,55 @@
-# Gety Connector for SiYuan Note
+# 🐴 小驴思源生态配套 · Gety 全域检索连接器 (siyuan-gety)
 
-A [Gety](https://gety.ai) connector that indexes documents from a local
-[SiYuan Note](https://b3log.org/siyuan/) kernel via its HTTP API, making your
-notebooks fully searchable in Gety — alongside local files and other sources.
+> **XiaoLv Suite Companion · SiYuan Note Connector for
+> [Gety](https://gety.ai)**\
+> 专为 [思源笔记 (SiYuan Note)](https://b3log.org/siyuan/) 打造的 Gety
+> 全文检索连接器，通过本地 HTTP API 毫秒级增量索引思源文档，在 Gety
+> 桌面端与本地文件、代码仓及外部知识库统一检索，一键通过 `siyuan://`
+> 协议秒级定位跳转编辑。
 
-每个思源笔记文档被导出为 Markdown 并在 Gety 中全文检索，点击搜索结果即可通过
-`siyuan://` 协议跳回思源打开对应文档进行编辑。
+---
 
-## Features
+## 🌟 核心特性 (Features)
 
-- **文档级索引** — 最小索引单位是思源文档（不索引细碎的内容块），
-  全部文档自动纳入检索
-- **快速并发索引** — 最多 6 个文档并行导出 Markdown，首次索引提速 3-5 倍
-- **增量同步** — 基于 SQL `updated` 时间戳增量拉取，稳态下只查询变更文档，
-  不再全量扫描
-- **删除检测** — 文档被删除/移出笔记本后自动从 Gety 索引中移除
-- **代码块保护** — 围栏代码块、行内代码、数学公式在清理过程中被完整保护，
-  代码中的 `==`、`(( ))`、HTML 标签、空行不会被误转换
-- **frontmatter 标签** — 思源文档 YAML 中的 `tags:` 字段被提取并索引， 不再随
-  frontmatter 一起丢弃
-- **一键跳转编辑** — 点击搜索结果通过 `siyuan://blocks/<id>`
-  协议在思源中打开对应文档
-- **丰富元数据** — 笔记本名、路径面包屑、标签、双链关系均可搜索
-- **内容美化** — 自动清理 YAML frontmatter、零宽字符、思源专有语法
-  （块引用/嵌入块/高亮），转换双链为标准 Markdown
-- **本地资源分类** — 图片🖼、音频🎵、视频🎬、附件📎 分别标记，避免破图
+- **文档级高质量索引** —
+  最小索引单位为完整思源文档，规避细碎块碎片噪音，保留完整上下文。
+- **并发导出与极速冷启动** — 最多 6 协程并发导出
+  Markdown，千篇大型知识库冷启动仅需 30~60 秒。
+- **毫秒级增量同步** — 基于 SQL `updated`
+  时间戳增量拉取，稳态下仅同步真实变更文档，零无效资源消耗。
+- **全库单次轻量检测** — 删除检测采用单次 SQL 扫描，彻底消除多笔记本循环 HTTP
+  往返通信延迟。
+- **思源层级标签原生支持** — 完整提取 `#科技/AI#`、`#工作/项目/2026#`
+  等层级标签并存入元数据供精确筛选。
+- **CommonMark 代码块无损保护** — 支持 3+ 反引号（含 4 反引号内嵌子代码块）与
+  `~~~` 波浪线围栏，语法保护坚如磐石。
+- **嵌套超级块迭代解析** — 递归将多层 `row` / `col`
+  嵌套超级块转换为清晰引用块，彻底杜绝语法标记泄漏。
+- **深度 HTML 标签过滤** — 彻底净化 `<details>`、`<summary>`、`<ruby>`
+  等冗余标签，安全保留 `siyuan://` 等超链接。
+- **动态日记图标与去重** — 智能映射日记动态图标为 `📅` 表情符，避免标题重复拼贴
+  Emoji 图标。
+- **一键双向跳转编辑** — 搜索结果直连 `siyuan://blocks/<id>`
+  原生协议，点击即刻唤出思源并聚焦定位。
 
-## 内容处理管线
+## 📦 安装指南 (Install in Gety)
 
-思源导出的 Markdown 经过 12 步清理与美化，确保在 Gety 中显示干净美观：
+### 方式一：从 Release 下载预打包（推荐）
 
-| 步骤              | 处理                                                 | 示例                                                     |
-| ----------------- | ---------------------------------------------------- | -------------------------------------------------------- |
-| 0. 保护代码与公式 | 围栏代码、行内代码、`$...$` / `$$...$$` 替换为占位符 | 代码块内容不被后续步骤破坏                               |
-| 1. 去 frontmatter | 移除 YAML 元数据块（先提取其中的 `tags:`）           | `---\ntitle:...\n---` → 移除                             |
-| 2. 去零宽字符     | 移除不可见 Unicode（U+200B/200D/FEFF 等）            | 移除                                                     |
-| 3. 去内联 HTML    | 移除思源嵌入的标签（含 table/list/media 包装器）     | `<span data-type="text">📄</span>` → `📄`；`<br>` → 换行 |
-| 4. 块引用转换     | `((id "文本"))` → 内联引用，含无文本 `((id))`        | `「文本」[↗](siyuan://blocks/id)`                        |
-| 5. 嵌入块清理     | `{{{row ...}}}` / `{{{col ...}}}` → 引用块           | `> 内容`；空嵌入块 → 源块链接                            |
-| 6. 高亮转换       | `==高亮==` → `**加粗**`（Markdown 无高亮语法）       | `==重点==` → `**重点**`                                  |
-| 7. 本地资源转换   | 工作区文件按类型标记：图片🖼、音频🎵、视频🎬、附件📎  | `![图](assets/a.png)` → `🖼 图`                           |
-| 8. 压缩空行       | 3+ 连续空行 → 1 个空行（代码块内不受影响）           | —                                                        |
-| 9. 恢复代码与公式 | 将占位符还原为原始代码/公式                          | 代码块完整恢复                                           |
-| 10. 去重 H1       | 移除与标题重复的 H1                                  | `# 标题` → 移除                                          |
-| 11. 双链提取      | 收集 siyuan:// 链接到元数据                          | `metadata.links`                                         |
-
-### 标题与内容头部的分工
-
-标题优先使用思源文档自身图标（没有时回退到笔记本图标），内容头部采用 **compact
-模式**，显示父路径、更新时间和紧凑标签行，为正文预留更多搜索预览空间。完整来源路径、
-别名、备注和标签同时存储在 `metadata` 中，可通过 Gety 的元数据筛选使用：
-
-- 标题：`📁 示例文档标题`
-- 内容头部：父路径（如有）、更新时间、标签
-- 完整来源：`Notebook / 项目A / 示例文档标题`
-
-```
-> 📁 子目录
-> 📅 3天前
-```
-
-根目录下的文档没有父路径，内容头部只显示更新时间。超长标题会截断到 60
-字，避免撑破结果列表的布局。
-
-## Prerequisites / 前置要求
-
-- **Gety** v0.5.1 or newer
-- **SiYuan Note** running locally with the kernel HTTP API enabled (default
-  `http://localhost:6806`)
-- **Deno** v2.x (only required to rebuild `dist/main.js`; a prebuilt bundle is
-  included)
-
-## Install in Gety / 安装
-
-### 方式一：从 Release 下载（推荐）
-
-1. 前往 [Releases](https://github.com/ai68298100/gety-siyuan-connector/releases)
-   下载最新的 `gety-siyuan-connector-<version>.zip`
+1. 前往 [Releases](https://github.com/xiaolv-suite/siyuan-gety/releases)
+   下载最新的 `siyuan-gety-<version>.zip`（或兼容包
+   `gety-siyuan-connector-<version>.zip`）
 2. 解压到任意目录
 3. 打开 **Gety → Settings → Connectors**
 4. 点击 **Install connector**，选择解压后的文件夹（包含 `manifest.json`）
-5. 填写配置字段，确认安装后点击 **Update now**
+5. 填写思源 API 地址与 Token，点击 **Update now** 即可瞬间建立索引
 
 ### 方式二：从源码安装
 
-1. Clone 或下载本仓库
-2. （可选）运行 `deno task build` 重新构建 `dist/main.js`
-3. 在 Gety 中选择仓库根文件夹安装
+1. Clone
+   本仓库到本地：`git clone https://github.com/xiaolv-suite/siyuan-gety.git`
+2. （可选）执行 `deno task build` 重新构建 `dist/main.js`
+3. 在 Gety 中选择仓库根目录安装
 
 安装后在 Gety → Settings → Connectors 中点击 **Update now** 触发首次索引
 （视文档数量而定，并发模式下通常 30 秒-1 分钟）。之后默认每 30

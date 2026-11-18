@@ -149,15 +149,18 @@ export default class SiYuanConnector extends Connector<
 		}
 
 		// Phase 1: lightweight ID list for deletion detection.
-		// Collect live IDs from ALL notebooks (open and closed) so that closing
-		// a notebook does not mark its documents as deleted. Incremental sync
-		// below still targets only open notebooks; closed notebooks keep their
-		// already-indexed docs but are not refreshed.
+		// Fast single-query fetch across all mounted notebooks, with fallback
+		// to per-notebook queries if client mock doesn't implement listAllDocIds.
 		const liveIds = new Set<string>();
-		for (const nb of allNotebooks) {
-			if (this.signal.aborted) return;
-			const ids = await this.client.listDocIds(nb.id);
-			for (const b of ids) liveIds.add(b.id);
+		if (typeof this.client.listAllDocIds === 'function') {
+			const allLiveDocs = await this.client.listAllDocIds();
+			for (const b of allLiveDocs) liveIds.add(b.id);
+		} else {
+			for (const nb of allNotebooks) {
+				if (this.signal.aborted) return;
+				const ids = await this.client.listDocIds(nb.id);
+				for (const b of ids) liveIds.add(b.id);
+			}
 		}
 		this.debug(`poll: ${liveIds.size} live doc IDs across all notebooks`);
 
@@ -354,9 +357,13 @@ export default class SiYuanConnector extends Connector<
 		const notebookIcon = notebookIcons.get(notebookId);
 		const rawTitle = doc.content || doc.hpath || doc.id;
 		const docIcon = extractIALIcon(doc.ial);
-		const iconCodepoint = docIcon || notebookIcon;
-		const iconEmoji = iconCodepointToEmoji(iconCodepoint);
-		const titleWithIcon = iconEmoji ? `${iconEmoji} ${rawTitle}` : rawTitle;
+		const docEmoji = iconCodepointToEmoji(docIcon);
+		const nbEmoji = iconCodepointToEmoji(notebookIcon);
+		const iconEmoji = docEmoji || nbEmoji;
+		const iconCodepoint = docEmoji ? docIcon : (notebookIcon ?? docIcon);
+		const titleWithIcon = (iconEmoji && !rawTitle.startsWith(iconEmoji))
+			? `${iconEmoji} ${rawTitle}`
+			: rawTitle;
 		const title = truncateTitle(titleWithIcon);
 		const updatedAt = toRfc3339(doc.updated);
 		const createdAt = toRfc3339(doc.created);
@@ -383,8 +390,17 @@ export default class SiYuanConnector extends Connector<
 		const tagSet = new Set<string>();
 		for (const t of fmTags.split(',')) if (t) tagSet.add(t);
 		for (const t of bodyTags.split(',')) if (t) tagSet.add(t);
-		const nativeTags = extractTags((doc.tag ?? '').replace(/#/g, ' #'));
-		for (const t of nativeTags.split(',')) if (t) tagSet.add(t);
+		if (doc.tag) {
+			const matches = doc.tag.match(
+				/#([a-zA-Z\u4e00-\u9fa5][\w\u4e00-\u9fa5\/-]*)/g,
+			);
+			if (matches) {
+				for (const m of matches) {
+					const cleanTag = m.replace(/^#+/, '').replace(/[\/#]+$/, '');
+					if (cleanTag) tagSet.add(cleanTag);
+				}
+			}
+		}
 		const tags = Array.from(tagSet).slice(0, 20).join(',');
 
 		// Compact header: path + date only. Word count, read time, and tags

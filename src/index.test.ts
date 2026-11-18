@@ -62,6 +62,20 @@ Deno.test('protectCode protects inline code', () => {
 	assert.equal(restore(clean), input);
 });
 
+Deno.test('protectCode protects nested multi-backtick fences', () => {
+	const input = '````markdown\n```text\n==should not be bold==\n```\n````';
+	const cleaned = cleanMarkdown(input);
+	assert.match(cleaned, /==should not be bold==/);
+	assert.doesNotMatch(cleaned, /\*\*should not be bold\*\*/);
+});
+
+Deno.test('protectCode protects tilde code fences', () => {
+	const input = '~~~python\nx = a == b\n~~~';
+	const { clean, restore } = protectCode(input);
+	assert.equal(clean.includes('x = a == b'), false);
+	assert.equal(restore(clean), input);
+});
+
 Deno.test('protectCode protects math spans', () => {
 	const input = 'formula $E=mc^2$ and $$\\int_0^1 x dx$$ done';
 	const { clean, restore } = protectCode(input);
@@ -112,6 +126,14 @@ Deno.test('extractTags pulls ASCII and CJK tags from markdown', () => {
 	assert.equal(set.has('大健康'), true);
 });
 
+Deno.test('extractTags extracts SiYuan hierarchical tags', () => {
+	const md = '文档包含 #科技/AI 以及 #工作/待办/P1# 标签。';
+	const tags = extractTags(md);
+	const set = new Set(tags.split(','));
+	assert.equal(set.has('科技/AI'), true);
+	assert.equal(set.has('工作/待办/P1'), true);
+});
+
 Deno.test('extractTags ignores tags inside code blocks', () => {
 	const md =
 		'正文 #real_tag\n```python\n# this is a comment\n#include <stdio.h>\n```';
@@ -151,6 +173,14 @@ Deno.test('extractFrontmatterTags returns empty when no tags field', () => {
 
 Deno.test('cleanMarkdown strips YAML frontmatter', () => {
 	const input = '---\ntitle: 示例\ndate: 2024-05-22\n---\n\n# 示例\n\n内容';
+	const result = cleanMarkdown(input);
+	assert.equal(result.startsWith('---'), false);
+	assert.match(result, /^# 示例/);
+});
+
+Deno.test('cleanMarkdown strips frontmatter with leading BOM and zero-width chars', () => {
+	const input =
+		'\uFEFF\u200B---\ntitle: 示例\ndate: 2024-05-22\n---\n\n# 示例\n\n内容';
 	const result = cleanMarkdown(input);
 	assert.equal(result.startsWith('---'), false);
 	assert.match(result, /^# 示例/);
@@ -235,10 +265,31 @@ Deno.test('stripInlineHtml drops unsafe link protocols', () => {
 	assert.equal(stripInlineHtml('<a href="javascript:alert(1)">Run</a>'), 'Run');
 });
 
+Deno.test('stripInlineHtml removes details and ruby wrappers cleanly', () => {
+	assert.equal(
+		stripInlineHtml('<details><summary>标题</summary>展开内容</details>')
+			.trim(),
+		'标题\n展开内容',
+	);
+	assert.equal(
+		stripInlineHtml('<ruby>汉<rt>hàn</rt></ruby>'),
+		'汉hàn',
+	);
+});
+
 Deno.test('cleanEmbedBlocks converts {{{row...}}} to blockquote', () => {
 	const result = cleanEmbedBlocks('{{{row\n嵌入内容\n}}}');
 	assert.equal(result.includes('{{{'), false);
 	assert.equal(result.includes('> 嵌入内容'), true);
+});
+
+Deno.test('cleanEmbedBlocks cleans nested superblocks without leaking syntax', () => {
+	const nested = '{{{row\n{{{col\n列1\n}}}\n{{{col\n列2\n}}}\n}}}';
+	const result = cleanEmbedBlocks(nested);
+	assert.equal(result.includes('{{{'), false);
+	assert.equal(result.includes('}}}'), false);
+	assert.match(result, /列1/);
+	assert.match(result, /列2/);
 });
 
 Deno.test('cleanEmbedBlocks handles col layout', () => {
@@ -432,6 +483,11 @@ Deno.test('formatFullSourcePath keeps notebook and document context', () => {
 Deno.test('iconCodepointToEmoji converts hex codepoints to emoji', () => {
 	assert.equal(iconCodepointToEmoji('1f4d4'), '📔');
 	assert.equal(iconCodepointToEmoji('2702-fe0f'), '✂️');
+	assert.equal(
+		iconCodepointToEmoji('api/icon/getDynamicIcon?type=1&date=2026-07-17'),
+		'📅',
+	);
+	assert.equal(iconCodepointToEmoji('🐴'), '🐴');
 	assert.equal(iconCodepointToEmoji(''), '');
 	assert.equal(iconCodepointToEmoji('invalid'), '');
 });
@@ -449,6 +505,14 @@ Deno.test('stripDuplicateH1 removes leading H1 matching title', () => {
 	assert.equal(stripDuplicateH1('# 示例文档\n\n正文', '示例文档'), '正文');
 	assert.equal(
 		stripDuplicateH1('# 示例文档\n\n正文', '示例文档 · 笔记'),
+		'正文',
+	);
+	assert.equal(
+		stripDuplicateH1('# 示例文档\n\n正文', '🥇 示例文档 · 笔记'),
+		'正文',
+	);
+	assert.equal(
+		stripDuplicateH1('# 🥇 示例文档\n\n正文', '🥇 示例文档 · 笔记'),
 		'正文',
 	);
 	assert.equal(
